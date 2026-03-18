@@ -8,122 +8,81 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_classic.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate
 
-from tools import calculator, word_counter, unit_converter, get_current_datetime, text_analyzer
+from tools import calculator, word_counter
 
 
 # Load API Key (supports both .env locally and Streamlit Cloud secrets)
-def get_api_key():
-    key = os.getenv("GOOGLE_API_KEY")
-    if not key:
-        try:
-            key = st.secrets.get("GOOGLE_API_KEY")
-        except Exception:
-            pass
-    return key
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
 
 
-@st.cache_resource
-def get_agent_executor():
-    api_key = get_api_key()
-
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        google_api_key=api_key,
-        temperature=0
-    )
-
-    tools = [calculator, word_counter, unit_converter, get_current_datetime, text_analyzer]
-
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system",
-             "You are a helpful AI assistant with access to several tools.\n"
-             "Use tools when they are relevant to the user's request.\n"
-             "- Use calculator for math expressions.\n"
-             "- Use word_counter for counting words/characters.\n"
-             "- Use unit_converter for converting units (km to miles, etc).\n"
-             "- Use get_current_datetime when asked about the current date or time.\n"
-             "- Use text_analyzer to analyze text statistics.\n"
-             "For everything else, answer from your own knowledge."
-            ),
-            ("placeholder", "{chat_history}"),
-            ("human", "{input}"),
-            ("placeholder", "{agent_scratchpad}")
-        ]
-    )
-
-    agent = create_tool_calling_agent(llm, tools, prompt)
-    return AgentExecutor(agent=agent, tools=tools, verbose=True)
+# Gemini model
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash",
+    google_api_key=GOOGLE_API_KEY,
+    temperature=0
+)
 
 
-def run_agent(query, chat_history):
-    agent_executor = get_agent_executor()
-    result = agent_executor.invoke({"input": query, "chat_history": chat_history})
+# Tools
+tools = [calculator, word_counter]
+
+
+# Prompt
+# prompt = ChatPromptTemplate.from_messages(
+#     [
+#         ("system", "You are a helpful AI assistant that can use tools."),
+#         ("human", "{input}"),
+#         ("placeholder", "{agent_scratchpad}")
+#     ]
+# )
+
+prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system",
+         "You are a helpful AI assistant.\n"
+         "You can answer questions using your own knowledge.\n"
+         "Use tools only when necessary.\n"
+         "If a question requires calculation, use the calculator tool.\n"
+         "If a question asks for word count, use the word_counter tool."
+        ),
+        
+        ("human", "{input}"),
+        
+        ("placeholder", "{agent_scratchpad}")
+    ]
+)
+
+# Create agent
+agent = create_tool_calling_agent(
+    llm,
+    tools,
+    prompt
+)
+
+
+# Agent executor
+agent_executor = AgentExecutor(
+    agent=agent,
+    tools=tools,
+    verbose=True
+)
+
+
+def my_output(query):
+    result = agent_executor.invoke({"input": query})
     return result["output"]
 
 
-# ── Streamlit UI ──────────────────────────────────────────────────────────────
+# Streamlit UI
+st.set_page_config(page_title="AI Agent")
 
-st.set_page_config(page_title="Gemini Agent", page_icon="🤖", layout="wide")
+st.title("🤖 Gemini Agent Bot")
 
-# Sidebar
-with st.sidebar:
-    st.title("🤖 Gemini Agent")
-    st.markdown("Powered by **Gemini 2.5 Flash** + LangChain")
-    st.divider()
+query = st.text_input("Ask something")
 
-    st.subheader("🛠️ Available Tools")
-    tool_info = {
-        "🧮 Calculator": "Solves math expressions\n`e.g. 2**10, math.sqrt(16)`",
-        "📝 Word Counter": "Counts words, chars & sentences",
-        "📐 Unit Converter": "Converts units\n`e.g. 5 km to miles`",
-        "🕐 Date & Time": "Returns current date and time",
-        "🔍 Text Analyzer": "Analyzes word frequency & stats",
-    }
-    for tool_name, desc in tool_info.items():
-        with st.expander(tool_name):
-            st.caption(desc)
+if st.button("Ask Agent"):
 
-    st.divider()
-    if st.button("🗑️ Clear Chat", use_container_width=True):
-        st.session_state.messages = []
-        st.rerun()
+    response = my_output(query)
 
-    st.caption("Built with LangChain + Streamlit")
-
-
-# Chat history state
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# Page header
-st.title("💬 Chat with Gemini Agent")
-st.caption("Ask me anything — I can do math, convert units, analyze text, and more!")
-
-# Display chat history
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-# Chat input
-if query := st.chat_input("Ask something..."):
-    # Show user message
-    st.session_state.messages.append({"role": "user", "content": query})
-    with st.chat_message("user"):
-        st.markdown(query)
-
-    # Build chat history for context (last 10 messages)
-    history = []
-    for msg in st.session_state.messages[-10:]:
-        if msg["role"] == "user":
-            history.append(("human", msg["content"]))
-        else:
-            history.append(("ai", msg["content"]))
-
-    # Get agent response
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            response = run_agent(query, history)
-        st.markdown(response)
-
-    st.session_state.messages.append({"role": "assistant", "content": response})
+    st.subheader("Response")
+    st.write(response)
