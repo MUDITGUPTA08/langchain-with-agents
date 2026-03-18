@@ -11,8 +11,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from tools import calculator, word_counter
 
 
-# Load API Key
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+# Load API Key (supports both .env locally and Streamlit Cloud secrets)
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
 
 
 # Gemini model
