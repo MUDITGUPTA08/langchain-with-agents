@@ -12,48 +12,52 @@ from tools import calculator, word_counter, unit_converter, get_current_datetime
 
 
 # Load API Key (supports both .env locally and Streamlit Cloud secrets)
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+def get_api_key():
+    key = os.getenv("GOOGLE_API_KEY")
+    if not key:
+        try:
+            key = st.secrets.get("GOOGLE_API_KEY")
+        except Exception:
+            pass
+    return key
 
 
-# Gemini model
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    google_api_key=GOOGLE_API_KEY,
-    temperature=0
-)
+@st.cache_resource
+def get_agent_executor():
+    api_key = get_api_key()
 
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        google_api_key=api_key,
+        temperature=0
+    )
 
-# Tools
-tools = [calculator, word_counter, unit_converter, get_current_datetime, text_analyzer]
+    tools = [calculator, word_counter, unit_converter, get_current_datetime, text_analyzer]
 
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system",
+             "You are a helpful AI assistant with access to several tools.\n"
+             "Use tools when they are relevant to the user's request.\n"
+             "- Use calculator for math expressions.\n"
+             "- Use word_counter for counting words/characters.\n"
+             "- Use unit_converter for converting units (km to miles, etc).\n"
+             "- Use get_current_datetime when asked about the current date or time.\n"
+             "- Use text_analyzer to analyze text statistics.\n"
+             "For everything else, answer from your own knowledge."
+            ),
+            ("placeholder", "{chat_history}"),
+            ("human", "{input}"),
+            ("placeholder", "{agent_scratchpad}")
+        ]
+    )
 
-# Prompt
-prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system",
-         "You are a helpful AI assistant with access to several tools.\n"
-         "Use tools when they are relevant to the user's request.\n"
-         "- Use calculator for math expressions.\n"
-         "- Use word_counter for counting words/characters.\n"
-         "- Use unit_converter for converting units (km to miles, etc).\n"
-         "- Use get_current_datetime when asked about the current date or time.\n"
-         "- Use text_analyzer to analyze text statistics.\n"
-         "For everything else, answer from your own knowledge."
-        ),
-        ("placeholder", "{chat_history}"),
-        ("human", "{input}"),
-        ("placeholder", "{agent_scratchpad}")
-    ]
-)
-
-# Create agent
-agent = create_tool_calling_agent(llm, tools, prompt)
-
-# Agent executor
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+    agent = create_tool_calling_agent(llm, tools, prompt)
+    return AgentExecutor(agent=agent, tools=tools, verbose=True)
 
 
 def run_agent(query, chat_history):
+    agent_executor = get_agent_executor()
     result = agent_executor.invoke({"input": query, "chat_history": chat_history})
     return result["output"]
 
